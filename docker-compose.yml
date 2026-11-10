@@ -1,0 +1,60 @@
+# cart-service with its own database.
+#   docker network create tej-net        # once per machine, shared by all services
+#   docker compose up --build
+# Service: http://localhost:4004 (the store reaches it through the api-gateway;
+# it asks catalog, inventory, promotion and shipping over tej-net).
+#
+# For hot reload, run only the database here and the service on your machine:
+#   docker compose up mysql
+#   pnpm dev
+name: tej-cart
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "3310:3306" # 3310 on the host; auth 3307, catalog 3308, inventory 3309, promotion 3311, shipping 3312
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  cart-service:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      MYSQL_USER: cart
+      MYSQL_PASSWORD: cart
+      MYSQL_DATABASE: cart
+      AUTH_JWKS_URL: http://auth-service:4001/internal/.well-known/jwks.json
+      CATALOG_URL: http://catalog-service:4002
+      INVENTORY_URL: http://inventory-service:4003
+      PROMOTION_URL: http://promotion-service:4005
+      SHIPPING_URL: http://shipping-service:4008
+    ports:
+      - "4004:4004"
+    networks:
+      - default
+      - tej-net # the api-gateway reaches it here as http://cart-service:4004
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  tej-net:
+    external: true
+
+volumes:
+  mysql-data:

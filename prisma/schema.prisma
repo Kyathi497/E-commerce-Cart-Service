@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum LineKind {
+  product
+  combo
+}
+
+// A shopper's cart (§6.5). A guest cart is found by its httpOnly tej_cart
+// cookie (only its SHA-256 is stored); a signed-in shopper's by user id, so
+// it follows them across devices. On sign-in the guest cart merges into it.
+model Cart {
+  id         String   @id @default(uuid())
+  tokenHash  String?  @unique @db.Char(64)
+  userId     String?  @unique @db.VarChar(64)
+  couponCode String?  @db.VarChar(40)
+  // For the shipping quote and delivery estimate.
+  pincode    String?  @db.Char(6)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  lines CartLine[]
+
+  @@index([updatedAt])
+}
+
+// One product size (by SKU code) or one combo (by slug). Prices are never
+// stored as the truth: every read asks catalog-service.
+model CartLine {
+  id        String   @id @default(uuid())
+  cartId    String
+  kind      LineKind
+  ref       String   @db.VarChar(80)
+  qty       Int
+  // The unit price the shopper last saw, so a price change can be pointed out.
+  seenPaise Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, kind, ref])
+}
